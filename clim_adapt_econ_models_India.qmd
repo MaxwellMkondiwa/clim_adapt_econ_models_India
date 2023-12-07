@@ -1,0 +1,369 @@
+---
+title: "Methodologies for Spatially Gridding Climate Adaptation Options from Econometric Methods"
+format: html
+fig-dpi: 300
+fig-width: 8.88
+fig-align: center
+fig-height: 5
+
+self-contained: true
+author: Maxwell Mkondiwa
+editor: visual
+toc: true
+toc-location: left
+number-sections: true
+execute: 
+  message: false
+  warning: false
+  echo: true
+---
+
+# Introduction
+
+
+# Imprtant geospatial R packages: Terra, geodata,sf, sp
+
+```{r}
+library(geodata)
+
+India=gadm(country="IND", level=2, path=tempdir())
+plot(India)
+
+India_aoi=subset(India,India$NAME_1=="Bihar"|India$NAME_2%in%c("Ballia","Chandauli","Deoria","Ghazipur","Kushinagar","Maharajganj","Mau","Siddharth Nagar","Gorakhpur"))
+
+plot(India_aoi)
+
+plot(India_aoi, add=TRUE)
+
+library(sf)
+India_aoi_sf=st_as_sf(India_aoi)
+library(mapview)
+
+mapview(India_aoi_sf)
+
+# Dissolve the district polygons to form new polygon of Bihar and EUP
+library(sf)
+India_aoi_sf_dis=st_union(India_aoi_sf)
+
+
+```
+
+# Causal Random Forest Model to Get Individual Treatment Effects 
+
+```{r}
+
+
+
+
+```
+
+# Point-geocoded data
+
+## Gridded data input variables
+
+The first strategy is to translate all variables to the grid. This involves interpolation across space and using new variable names. In this case, instead of gender being a dummy, you use a proportion of female or male after interpolation.
+
+### Proximity polygons
+
+```{r}
+library(rio)
+LDS=import("LDS_wheat_public_cleaned.csv")
+
+library(sp)
+LDS_sp=SpatialPointsDataFrame(cbind(LDS$O.largestPlotGPS.Longitude,LDS$O.largestPlotGPS.Latitude),data=LDS,proj4string=CRS("+proj=longlat +datum=WGS84"))
+
+library(terra)
+LDS_v=vect(LDS_sp)
+if (!require("rspat")) remotes::install_github('rspatial/rspat')
+
+library(rspat)
+v <- voronoi(LDS_v)
+plot(v)
+points(LDS_v)
+
+v_india_aoi <- crop(v,India_aoi)
+plot(v_india_aoi, "yield_kgperha")
+
+# r <- rast(India_aoi, res=10000)
+# vr <- terra::rasterize(v_india_aoi, r, "yield_kgperha")
+# plot(vr)
+
+
+
+```
+
+### Nearest-neigbor 
+
+```{r}
+# gs <- gstat(formula=prec~1, locations=~x+y, data=d, nmax=5, set=list(idp = 0))
+# nn <- interpolate(r, gs, debug.level=0)
+# nnmsk <- mask(nn, vr)
+# plot(nnmsk, 1)
+
+
+```
+
+
+### Inverse distance weighted 
+```{r}
+
+# library(gstat)
+# gs <- gstat(formula=prec~1, locations=~x+y, data=d)
+# idw <- interpolate(r, gs, debug.level=0)
+# idwr <- mask(idw, vr)
+# plot(idwr, 1)
+# 
+# 
+
+
+```
+
+## Model based kriging
+
+```{r}
+
+
+
+
+
+
+```
+
+## Model-based predictions
+
+### Random forest and raster prediction
+
+This approach follows notes from reago website by Robert Hjimans (https://reagro.org/cases/croptrials.html**).**
+
+```{r}
+library(rio)
+LDS=import("LDS_wheat_public_cleaned.csv")
+table(LDS$A.q103_district,LDS$A.q102_state)
+
+plot(LDS$O.largestPlotGPS.Longitude, LDS$O.largestPlotGPS.Latitude, col="red", pch=20)
+
+
+
+
+# Random Forest Estimation 
+library(randomForest)
+
+RF_model <- randomForest(yield_kgperha ~ O.largestPlotGPS.Longitude + O.largestPlotGPS.Latitude, data=LDS)
+
+varImpPlot(RF_model)
+
+RF_model_pred = predict(RF_model)
+plot(LDS$yield_kgperha, RF_model_pred)
+abline(0,1)
+
+# Raster prediction
+
+## Create grid with extent
+library(raster)
+
+e <- extent(c(min(LDS$O.largestPlotGPS.Longitude)-2,max(LDS$O.largestPlotGPS.Longitude)+2,min(LDS$O.largestPlotGPS.Latitude)-2,max(LDS$O.largestPlotGPS.Latitude)+2))
+
+aoi <- raster(ext=e, res=1/6)
+
+pp <- interpolate(aoi, RF_model, xyNames=c('O.largestPlotGPS.Longitude', 'O.largestPlotGPS.Latitude'))
+pp <- mask(pp, India_aoi_sf)
+pp <- crop(pp, India_aoi_sf)
+plot(pp)
+points(LDS$O.largestPlotGPS.Longitude, LDS$O.largestPlotGPS.Latitude, col="blue")
+
+
+```
+
+### Spatial Bayesian Geostatistical Gaussian Process Model
+If one is interested in calculating other measures other than the predicted value (for example, the probability of exceeding some amount), then a Bayesian gaussian process model is the best alternative in that using Markov Chain Monte Carlo simulations one can use a probabilistic assessment. 
+
+```{r}
+### Bayesian kriging 
+
+LDS_small <- LDS[sample(1:nrow(LDS),800),] 
+
+
+coords=dplyr::select(LDS_small,O.largestPlotGPS.Longitude,O.largestPlotGPS.Latitude)
+coords=as.matrix(coords)
+
+# The public version of the data has duplicated coordinates
+# We need to jitter these because spatial Bayesian kriging requires unique coordinates.
+library(geoR)
+coords=jitterDupCoords(coords,min=2,max=10)
+coords=as.matrix(coords)
+
+# Bayesian models take much time to render. We sample 1000 observations to showcase the approach
+library(spBayes)
+n.samples=1000
+
+t1 <- Sys.time()
+
+r <-1
+n.ltr <- r*(r+1)/2
+
+priors <- list("phi.Unif"=list(rep(1,r), rep(10,r)), "K.IW"=list(r, diag(rep(1,r))), "tau.sq.IG"=c(2, 1))
+
+starting <- list("phi"=rep(3/0.5,r), "A"=rep(1,n.ltr), "tau.sq"=1)
+
+tuning <- list("phi"=rep(0.1,r), "A"=rep(0.01, n.ltr), "tau.sq"=0.01)
+
+cf.sowing.sp <- spBayes::spSVC(yield_kgperha~1, data=LDS_small,coords=coords,
+                                  starting= starting,
+                                  tuning=tuning,
+                                  priors=priors,
+                                  cov.model="exponential",n.samples=n.samples,
+                                  n.omp.threads=15,svc.cols=c("(Intercept)"))
+
+
+t2 <- Sys.time()
+t2 - t1
+
+
+burn.in <- floor(0.75*n.samples)
+
+cf.sowing.sp.r <- spRecover(cf.sowing.sp, start=burn.in)
+
+# Kriging
+library(terra)
+library(stars)
+library(raster)
+library(gstat) # Use gstat's idw routine
+library(sp)    # Used for the spsample function
+library(tmap)
+library(geodata)
+
+# India=gadm(country="IND", level=1, path=tempdir())
+# plot(India)
+# India_State_Boundary=subset(India,India$NAME_1=="Bihar")
+# plot(India_State_Boundary)
+# library(sf)
+
+#India_State_Boundary=st_as_sf(India_State_Boundary)
+
+#India_State_Boundary_Bihar_sp=as_Spatial(India_State_Boundary_Bihar)
+
+library(spBayes)
+India_aoi_sf_dis_sp=as_Spatial(India_aoi_sf_dis)
+
+LDS_small_sp=SpatialPointsDataFrame(cbind(LDS_small$O.largestPlotGPS.Longitude,LDS_small$O.largestPlotGPS.Latitude),data=LDS_small,proj4string=CRS("+proj=longlat +datum=WGS84"))
+
+
+LDS_small_sp@bbox <- India_aoi_sf_dis_sp@bbox
+
+grd <- as.data.frame(spsample(LDS_small_sp, "regular", n=10000))
+
+names(grd)       <- c("X", "Y")
+coordinates(grd) <- c("X", "Y")
+gridded(grd)     <- TRUE  # Create SpatialPixel object
+fullgrid(grd)    <- TRUE  # Create SpatialGrid object
+plot(grd)
+
+
+India_aoi_sf_dis_sp_poly <- India_aoi_sf_dis_sp@polygons[[1]]@Polygons[[1]]@coords
+India_aoi_sf_dis_sp_poly <- as.matrix(India_aoi_sf_dis_sp_poly)
+
+pred.coords <- SpatialPoints(grd)@coords
+pred.coords =as.matrix(pred.coords)
+
+pred.covars <- as.matrix(rep(1, nrow(pred.coords)))
+
+cf.sowing.sp.pred <- spPredict(cf.sowing.sp.r,pred.coords=pred.coords,
+                                    pred.covars=pred.covars, n.omp.threads=15)
+
+
+cf.sowing.sp.pred.pred.mu = apply(cf.sowing.sp.pred$p.y.predictive.samples,1,mean)
+cf.sowing.sp.pred.sd = apply(cf.sowing.sp.pred$p.y.predictive.samples,1,sd)
+
+library(MBA)
+library(fields)
+
+pred.grid <- as.data.frame(list(pred.coords,pred.mu=cf.sowing.sp.pred.pred.mu,pred.sd=cf.sowing.sp.pred.sd))
+
+coordinates(pred.grid) = c("X", "Y")
+gridded(pred.grid) <- TRUE
+pred.mu.image <- as.image.SpatialGridDataFrame(pred.grid["pred.mu"])
+pred.sd.image <- as.image.SpatialGridDataFrame(pred.grid["pred.sd"])
+
+
+# predict and probability ------------------------------------------------
+cf.sowing.sp.pred.pred.prob_3tons=rowSums(cf.sowing.sp.pred$p.y.predictive.samples>3000)/251
+cf.sowing.sp.pred.pred.prob_5tons=rowSums(cf.sowing.sp.pred$p.y.predictive.samples>5000)/251
+
+
+pred.grid <- as.data.frame(list(pred.coords,pred.mu=cf.sowing.sp.pred.pred.mu,pred.sd=cf.sowing.sp.pred.sd,
+                                pred.prob_3tons=cf.sowing.sp.pred.pred.prob_3tons,
+                                pred.prob_5tons=cf.sowing.sp.pred.pred.prob_5tons))
+
+coordinates(pred.grid) = c("X", "Y")
+gridded(pred.grid) <- TRUE
+
+pred.mu.image <- as.image.SpatialGridDataFrame(pred.grid["pred.mu"])
+pred.sd.image <- as.image.SpatialGridDataFrame(pred.grid["pred.sd"])
+pred.prob.image_3tons <- as.image.SpatialGridDataFrame(pred.grid["pred.prob_3tons"])
+pred.prob.image_5tons<- as.image.SpatialGridDataFrame(pred.grid["pred.prob_5tons"])
+
+# Rastervis
+library(rasterVis)
+pred.mu=pred.grid["pred.mu"]
+pred.mu=raster(pred.mu)
+pred.mu=mask(pred.mu,India_aoi_sf_dis_sp)
+pred.mu_plot=levelplot(pred.mu,par.settings=RdBuTheme(),contour=TRUE)
+pred.mu_plot
+
+# Standard deviation
+library(rasterVis)
+pred.sd=pred.grid["pred.sd"]
+pred.sd=raster(pred.sd)
+pred.sd=mask(pred.sd,India_aoi_sf_dis_sp)
+pred.sd_plot=levelplot(pred.sd,par.settings=RdBuTheme(),contour=TRUE)
+pred.sd_plot
+
+# Probability of 3 tons
+pred.prob_3tons=pred.grid["pred.prob_3tons"]
+pred.prob_3tons=raster(pred.prob_3tons)
+pred.prob_3tons=mask(pred.prob_3tons,India_aoi_sf_dis_sp)
+pred.prob_3tons_plot=levelplot(pred.prob_3tons,par.settings=RdBuTheme(),contour=TRUE)
+pred.prob_3tons_plot
+
+# Probability of 5 tons
+pred.prob_5tons=pred.grid["pred.prob_5tons"]
+pred.prob_5tons=raster(pred.prob_5tons)
+pred.prob_5tons=mask(pred.prob_5tons,India_aoi_sf_dis_sp)
+pred.prob_5tons_plot=levelplot(pred.prob_5tons,par.settings=RdBuTheme(),contour=TRUE)
+pred.prob_5tons_plot
+
+```
+
+### Spatial Bayesian Geoadditive Model 
+```{r}
+
+
+
+
+
+
+
+
+```
+
+# Areal data
+
+## Areal centroid random field gaussian process model
+One can get the centroid of each polygon, e.g., then fit a geostatistical model. This can then be gridded across the area of interest. 
+
+```{}
+
+
+
+
+
+
+```
+
+## Areal-point downscaling 
+
+### Markov Random Field (MRF) Geoaddive Structured and Unstructured Spatial Model
+
+# Conclusion 
+
+# References 
