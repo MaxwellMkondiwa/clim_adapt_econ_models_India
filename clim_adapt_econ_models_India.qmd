@@ -19,17 +19,17 @@ execute:
 ---
 
 # Introduction
-This notebook provides machine learning and spatial methods for assessing the impacts of climate on yields and identifying adaptation options in a spatially explicit manner. The goal is to generate spatially differentiated (gridded) estimates of the effects of weather extremes and adaptation options. 
 
-We use publicly available datasets in India to demonstrate these models. 
+This notebook provides machine learning and spatial methods for assessing the impacts of climate on yields and identifying adaptation options in a spatially explicit manner. The goal is to generate spatially differentiated (gridded) estimates of the effects of weather extremes and adaptation options.
 
+We use publicly available datasets in India to demonstrate these models.
 
 # Important geospatial R packages: Terra, geodata,sf, sp
 
 ```{r}
 library(geodata)
 
-India=gadm(country="IND", level=2, path=tempdir())
+India=gadm(country="IND", level=2, path="shp")
 plot(India)
 
 India_aoi=subset(India,India$NAME_1=="Bihar"|India$NAME_2%in%c("Ballia","Chandauli","Deoria","Ghazipur","Kushinagar","Maharajganj","Mau","Siddharth Nagar","Gorakhpur"))
@@ -52,7 +52,8 @@ India_aoi_sf_dis=st_union(India_aoi_sf)
 ```
 
 # Estimation Approaches
-## Causal Random Forest Model to Get Individual Treatment Effects 
+
+## Causal Random Forest Model to Get Individual Treatment Effects
 
 ### Sowing dates before Nov 20 vs after
 
@@ -155,7 +156,9 @@ summary(tau.hat_sowing$predict)
 ```
 
 ### Understanding Mechanisms
-We can use the model to understand how farmers who used different amounts of fertilizer or inputs benefit from early sowing of wheat. In addition, we can investigate if farmers who are above the heat stress threshold gain from early sowing. 
+
+We can use the model to understand how farmers who used different amounts of fertilizer or inputs benefit from early sowing of wheat. In addition, we can investigate if farmers who are above the heat stress threshold gain from early sowing.
+
 ```{r}
 X_cf_sowingtau=data.frame(X_cf_sowing,tau.hat_sowing)
 
@@ -183,6 +186,18 @@ previous_theme <- theme_set(theme_bw())
 sowingCATEtemp
 
 
+sowingCATEtempFeb=ggplot(X_cf_sowingtau,aes(feb_mean_temp,predictions))+
+  geom_smooth(method="loess",formula=y~x,col="darkblue")+
+  labs(x="February temperature",y="Sowing treatment effect")
+previous_theme <- theme_set(theme_bw())
+sowingCATEtempFeb
+
+sowingCATEtempMarch=ggplot(X_cf_sowingtau,aes(march_mean_temp,predictions))+
+  geom_smooth(method="loess",formula=y~x,col="darkblue")+
+  labs(x="March temperature",y="Sowing treatment effect")
+previous_theme <- theme_set(theme_bw())
+sowingCATEtempMarch
+
 sowingCATEtempAp=ggplot(X_cf_sowingtau,aes(april_mean_temp,predictions))+
   geom_smooth(method="loess",formula=y~x,col="darkblue")+
   labs(x="April temperature",y="Sowing treatment effect")
@@ -196,6 +211,15 @@ sowingCATEprecip=ggplot(X_cf_sowingtau,aes(precip,predictions))+
 previous_theme <- theme_set(theme_bw())
 sowingCATEprecip
 
+# Mapping
+library(sp)
+X_cf_sowingtau_sp= SpatialPointsDataFrame(cbind(X_cf_sowingtau$O.largestPlotGPS.Longitude,X_cf_sowingtau$O.largestPlotGPS.Latitude),data=X_cf_sowingtau,proj4string=CRS("+proj=longlat +datum=WGS84"))
+
+
+library(mapview)
+mapviewOptions(fgb = FALSE)
+tau.hat_sowing_predictionsmapview=mapview(X_cf_sowingtau_sp,zcol="predictions",layer.name="Early sowing yield gain (t/ha)")
+tau.hat_sowing_predictionsmapview
 
 
 
@@ -215,9 +239,10 @@ p
 
 ```
 
-The above analysis however shows only the benefits to those farmers who experienced that level of stress. What about those who didn't experience it but could have experienced it? For a counterfactual analysis of how each farmer would have gained or lost if they had a terminal stress and had sown early assuming the same levels of use other inputs, we predict the treatment effect under the assumption that all variables are the same except for the maximum temperature which is fixed at a value above 31 (e.g., 32). 
+The above analysis however shows only the benefits to those farmers who experienced that level of stress. What about those who didn't experience it but could have experienced it? For a counterfactual analysis of how each farmer would have gained or lost if they had a terminal stress and had sown early assuming the same levels of use other inputs, we predict the treatment effect under the assumption that all variables are the same except for the maximum temperature which is fixed at a value above 31 (e.g., 32).
 
 ### Early sowing gains in heat stress of 32
+
 ```{r}
 
 X_cf_sowing_pred=X_cf_sowing
@@ -234,6 +259,7 @@ X_cf_sowingtau=data.frame(X_cf_sowing,tau.hat_sowing)
 
 ```
 
+## Alternative estimates using Bayesian geoadditive model
 ```{r}
 library(bamlss)
 set.seed(111)
@@ -301,19 +327,11 @@ plot(myras2)
 
 ```
 
-
-
-
-
-
-
-
-
-# Interpolation for Point-geocoded data
+# Interpolation for point-geocoded data
 
 ## Gridded data input variables
 
-The first strategy is to translate all variables to the grid. This involves interpolation across space and using new variable names. In this case, instead of gender being a dummy, you use a proportion of female or male after interpolation.
+The first strategy is to translate all variables to the grid. This involves interpolation across space and using new variable names. In this case, instead of gender being a dummy, you use a proportion of female or male after interpolation. You can read more details here: https://www.paulamoraga.com/book-spatial/spatial-interpolation-methods.html.
 
 ### Proximity polygons
 
@@ -344,11 +362,12 @@ plot(v_india_aoi, "yield_kgperha")
 
 ```
 
-### Nearest-neigbor 
+### Nearest-neigbor
 
 ```{r}
-#r <- rast(India_aoi, res=10000)
-# gs <- gstat(formula=yield_kgperha~1, locations=~x+y, data=LDS_sp, nmax=5, set=list(idp = 0))
+# library(gstat)
+# r <- rast(India_aoi, res=10000)
+# gs <- gstat(formula=yield_kgperha~1, data=LDS_sp, nmax=5, set=list(idp = 0))
 # nn <- interpolate(r, gs, debug.level=0)
 # nnmsk <- mask(nn, vr)
 # plot(nnmsk, 1)
@@ -356,8 +375,8 @@ plot(v_india_aoi, "yield_kgperha")
 
 ```
 
+### Inverse distance weighted
 
-### Inverse distance weighted 
 ```{r}
 
 # library(gstat)
@@ -382,7 +401,6 @@ plot(v_india_aoi, "yield_kgperha")
 
 ```
 
-
 ## Causal ML using gridded variables
 
 ```{r}
@@ -394,14 +412,13 @@ plot(v_india_aoi, "yield_kgperha")
 
 ```
 
-
-
-
 ## Model-based predictions
 
 ### Random forest and raster prediction
 
 This approach follows notes from reago website by Robert Hjimans (https://reagro.org/cases/croptrials.html**).**
+
+#### Interpolate RF model
 
 ```{r}
 library(rio)
@@ -433,17 +450,110 @@ e <- extent(c(min(LDS$O.largestPlotGPS.Longitude)-2,max(LDS$O.largestPlotGPS.Lon
 
 aoi <- raster(ext=e, res=1/6)
 
+# Interpolate
 pp <- interpolate(aoi, RF_model, xyNames=c('O.largestPlotGPS.Longitude', 'O.largestPlotGPS.Latitude'))
 pp <- mask(pp, India_aoi_sf)
 pp <- crop(pp, India_aoi_sf)
 plot(pp)
-points(LDS$O.largestPlotGPS.Longitude, LDS$O.largestPlotGPS.Latitude, col="blue")
+#points(LDS$O.largestPlotGPS.Longitude, LDS$O.largestPlotGPS.Latitude, col="blue")
+
 
 
 ```
 
-### Spatial Bayesian Geostatistical Gaussian Process Model [Aka Bayesian Kriging]
-If one is interested in calculating other measures other than the predicted value (for example, the probability of exceeding some amount), then a Bayesian gaussian process model is the best alternative in that using Markov Chain Monte Carlo simulations one can use a probabilistic assessment. 
+#### Raster predict from RF model: Kriging Wheat Prices
+
+The spatial prediction -the variables are spatial- function takes two arguments: the prediction variables and the price prediction model. Both the "stats" package(loaded as a randomForest dependency) and the "raster" package have a function called "predict" that can make predictions. Since we are dealing with spatial data, we add a prefix to the function name to ensure the "predict" function in the raster "package" is used.
+
+```{r}
+
+# library(ncdf4)
+# library(raster)
+# library(sf)
+# library(data.table)
+# library(exactextractr)
+# library(terra)
+# library(rgdal)
+# library(geodata)
+# 
+# # Step 1
+# #dir.create("rasters") # Create a directory to put the downloaded raster files
+# #population=population(2015,0.5,path="rasters")
+# #elevationglobal_geodata=elevation_global(0.5,path="rasters")
+# 
+# rasterstack <- stack() 
+# raster::crs(rasterstack)="+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+# rasterlist <- list.files(path = "rasters",recursive=TRUE, 
+#                          pattern = "*.tif$", 
+#                          full.names = TRUE) # Character vector of relative filepaths
+# 
+# 
+# for (rasterpath in rasterlist) {
+#       rasterfile <- raster(rasterpath)
+#       rasterstack <- addLayer(rasterstack, rasterfile)
+#     }
+# 
+# refrenceraster <- rasterstack[[1]]
+# 
+# LDS_sp=SpatialPointsDataFrame(cbind(LDS$O.largestPlotGPS.Longitude,LDS$O.largestPlotGPS.Latitude),data=LDS,proj4string=CRS("+proj=longlat +datum=WGS84"))
+# 
+# 
+# India_aoi_sp=as_Spatial(India_aoi_sf)
+# 
+# # # Step 2
+# India_aoi_sp.raster <- rasterize(India_aoi_sp, refrenceraster)
+# 
+# # Step 3
+# latitudes <- xFromCell(India_aoi_sp.raster, 1:length(India_aoi_sp.raster))  
+# longitudes <- yFromCell(India_aoi_sp.raster, 1:length(India_aoi_sp.raster))
+# 
+# # Step 4
+# India_aoi_sp.raster.lati <- India_aoi_sp.raster.long <- India_aoi_sp.raster
+# values(India_aoi_sp.raster.lati) <- latitudes
+# values(India_aoi_sp.raster.long) <- longitudes
+# 
+# # Step 5
+# names(India_aoi_sp.raster.long) <- "Longitude"
+# names(India_aoi_sp.raster.lati) <- "Latitude"
+# 
+# 
+# rasterstack <- stack(rasterstack, India_aoi_sp.raster.long, India_aoi_sp.raster.lati)
+# 
+# # step 6
+# library(terra)
+# predict.vrbs.r = terra::extract(rasterstack,
+#                   LDS_sp,
+#                   #buffer=1, # Meters
+#                  # buffer=5000, # Meters
+#                   #small=TRUE,
+#                   fun = mean)
+# 
+# predict.vrbs.r <- predict.vrbs.r[complete.cases(predict.vrbs.r),]
+# 
+# RF_model_rast <- randomForest(x=predict.vrbs.r,
+#                          y=LDS$L.q607_farmGatePricePerKg)
+# 
+# raster.prediction <- raster::predict(rasterstack, # Prediction variable rasters
+#                                      RF_model_rast # Prediction  model
+#                                     )   
+# 
+# 
+# 
+# raster.prediction.c=crop(raster.prediction,India_aoi_sp)
+# raster.prediction.m=mask(raster.prediction.c,India_aoi_sp)
+# 
+# # Plot the raster
+# library(rasterVis)
+# 
+# raster.prediction.m_plot=levelplot(raster.prediction.m,par.settings=RdBuTheme())
+# raster.prediction.m_plot
+
+
+```
+
+### Spatial Bayesian Geostatistical Gaussian Process Model \[Aka Bayesian Kriging\]
+
+If one is interested in calculating other measures other than the predicted value (for example, the probability of exceeding some amount), then a Bayesian gaussian process model is the best alternative in that using Markov Chain Monte Carlo simulations one can use a probabilistic assessment.
 
 ```{r}
 ### Bayesian kriging 
@@ -602,7 +712,8 @@ pred.prob_5tons_plot
 
 ```
 
-### Spatial Bayesian Geoadditive Model 
+### Spatial Bayesian Geoadditive Model
+
 ```{r}
 library(bamlss)
 set.seed(111)
@@ -641,6 +752,7 @@ plot(myras2)
 ```
 
 ### BAMLSS gridded treatment effects: post-processing
+
 ```{r}
 library(bamlss)
 set.seed(111)
@@ -683,23 +795,23 @@ plot(myras2)
 
 ```
 
-
 # Areal data
-There two important cases in which one may have areal data to use in climate adaptation prioritization. The first case is in which there is plot or farm level plot but that the statistical agency did not provide individual level coordinates. In these cases, the only of relating the individual observations to spatial data is through a higher level spatial level. Secondly, there are cases especially with administrative data in which the data are available only at the aggregated spatial level. 
+
+There two important cases in which one may have areal data to use in climate adaptation prioritization. The first case is in which there is plot or farm level plot but that the statistical agency did not provide individual level coordinates. In these cases, the only of relating the individual observations to spatial data is through a higher level spatial level. Secondly, there are cases especially with administrative data in which the data are available only at the aggregated spatial level.
 
 ## Using centroid
-One can get the centroid of each polygon, e.g., then fit a geostatistical model as in the spatial Bayesian Geostatistical Gaussian Process Model or geoadditive model as above. 
+
+One can get the centroid of each polygon, e.g., then fit a geostatistical model as in the spatial Bayesian Geostatistical Gaussian Process Model or geoadditive model as above.
 
 
-### Markov Random Field (MRF) Geoaddive Structured and Unstructured Spatial Model
+### Markov Random Field (MRF) Geoadditive Structured and Unstructured Spatial Model
 
-In the case where there are data at individual farm level albeit not have geocoordinates,one can use structured geoadditive model to ascertain the patterns of the explained and unexplained spatial effect. 
+In the case where there are data at individual farm level albeit not have geocoordinates,one can use structured geoadditive model to ascertain the patterns of the explained and unexplained spatial effect.
 
 ```{r}
 library(BayesX)
 library("R2BayesX")
 
-shpname <- file.path(getwd(), "ZAF_adm_shp" , "ZAF_adm2")
 
 India_aoi_sp=as_Spatial(India_aoi_sf)
 
@@ -722,9 +834,14 @@ India_aoi_sp_bnd <- BayesX::shp2bnd(shpname=shpname, regionnames = "NAME_2", che
 
 ```
 
-
 ## Other Areal-Point Downscaling Methods
 
-# Conclusion 
+# Conclusion
 
-# References 
+# References
+
+Athey, S., and Wager, S. 2021. "Policy learning with observational data." *Econometrica* 89(1): 133-161. Doi: <https://doi.org/10.3982/ECTA15732>.
+
+Wager, S., and Athey, S. 2018. "Estimation and Inference of Heterogeneous Treatment Effects using Random Forests". *Journal of the American Statistical Association* 113(523): 1228-1242. Doi: <https://doi.org/10.1080/01621459.2017.1319839>.
+
+Zhou, Z., Athey, S., Wager, S. 2022. "Offline multi-action policy learning: Generalization and optimization." *Operations Research* 71 (1): 148-183. Doi: <https://doi.org/10.1287/opre.2022.2271>.
