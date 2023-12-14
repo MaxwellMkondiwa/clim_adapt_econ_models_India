@@ -22,7 +22,25 @@ execute:
 
 This notebook provides machine learning and spatial methods for assessing the impacts of climate on yields and identifying adaptation options in a spatially explicit manner. The goal is to generate spatially differentiated (gridded) estimates of the effects of weather extremes and adaptation options.
 
-We use publicly available datasets in India to demonstrate these models.
+We use publicly available datasets in South Asia to demonstrate these models.
+
+The code is divided into 4 major components. These include:
+
+1.  Important geospatial packages
+
+2.  Estimation approaches that provided individual farmer level estimates using models that allow nonlinearity of temperature effects and adaptation.
+
+3.  Interpolation of point geocoded data using proximity polygons, nearest neigbor, inverse distance weighted, kriging, Random forest, spatial Bayesian gaussian models and spatial Bayesian geoadditive models.
+
+4.  Interpolation and downscaling based on areal data and other methods
+
+The key references for the estimation models are based on the R packages which include:
+
+-   GRF (Generalized Random Forest) for causal ML
+
+-   spBayes for Bayesian gaussian process models
+
+-   BAMLSS for Bayesian geoadditive models
 
 # Important geospatial R packages: Terra, geodata,sf, sp
 
@@ -47,8 +65,20 @@ mapview(India_aoi_sf)
 # Dissolve the district polygons to form new polygon of Bihar and EUP
 library(sf)
 India_aoi_sf_dis=st_union(India_aoi_sf)
+mapview(India_aoi_sf_dis)
 
-
+# From sf to sp
+India_aoi_sf_dis_sp=as_Spatial(India_aoi_sf_dis)
+# Mapping population density
+# population=population(2015,05,path="rasters")
+# 
+# library(raster)
+# pop_raster=raster(population)
+# Pop_Bihar_EUP_cropped = crop(pop_raster,India_aoi_sf_dis_sp)
+# 
+# Pop_Bihar_EUP_cropped_m = mask(Pop_Bihar_EUP_cropped,India_aoi_sf_dis_sp)
+# 
+# library(Pop_Bihar_EUP_cropped_m)
 ```
 
 # Estimation Approaches
@@ -90,7 +120,6 @@ W.multi_sowing.forest <- probability_forest(X_cf_sowing, W_cf_sowing,
   seed = 2
 )
 W.hat.multi.all_sowing <- predict(W.multi_sowing.forest, estimate.variance = TRUE)$predictions
-
 
 # Regression forest to get expected responses 
 Y.multi_sowing.forest <- regression_forest(X_cf_sowing, Y_cf_sowing,
@@ -260,13 +289,14 @@ X_cf_sowingtau=data.frame(X_cf_sowing,tau.hat_sowing)
 ```
 
 ## Alternative estimates using Bayesian geoadditive model
+
 ```{r}
 library(bamlss)
 set.seed(111)
-f <- yield_kgperha ~ s(march_mean_temp)+s(april_mean_temp)+ s(O.largestPlotGPS.Longitude,O.largestPlotGPS.Latitude,by=Sowing_Date_Early)
+f <-  L.tonPerHectare~I.q5505_weedSeverity_num+I.q5509_diseaseSeverity_num+I.q5506_insectSeverity_num+                                            Nperha+P2O5perha+variety_type_NMWV+G.q5305_irrigTimes+A.q111_fGenderdum+Weedmanaged+temp+precip+wc2.1_30s_elev+                                                     M.q708_marketDistance+nitrogen_0.5cm+sand_0.5cm+soc_5.15cm+s(feb_mean_temp)+ s(march_mean_temp)+s(march_mean_temp)+s(april_mean_temp)+ s(O.largestPlotGPS.Longitude,O.largestPlotGPS.Latitude,by=Sowing_Date_Early)
 
 ## estimate model.
-b <- bamlss(f, data = LDS)
+b <- bamlss(f, data = LDSestim_sow)
 
 summary(b)
 ## Plot estimated effects.
@@ -277,15 +307,70 @@ pred <- expand.grid(O.largestPlotGPS.Longitude = seq(82, 89, length = 100),O.lar
 
 pred$Sowing_Date_Early=1
 
-pred$march_mean_temp=mean(LDS$march_mean_temp)
-pred$april_mean_temp=mean(LDS$april_mean_temp)
+pred$I.q5505_weedSeverity_num=mean(LDSestim_sow$I.q5505_weedSeverity_num)
+
+
+pred$I.q5509_diseaseSeverity_num=mean(LDSestim_sow$I.q5509_diseaseSeverity_num)
+
+
+pred$I.q5506_insectSeverity_num=mean(LDSestim_sow$I.q5506_insectSeverity_num)  
+
+
+pred$Nperha=mean(LDSestim_sow$Nperha)
+
+pred$P2O5perha=mean(LDSestim_sow$P2O5perha)
+
+pred$variety_type_NMWV=mean(LDSestim_sow$variety_type_NMWV)
+
+pred$G.q5305_irrigTimes=mean(LDSestim_sow$G.q5305_irrigTimes)
+
+pred$A.q111_fGenderdum=mean(LDSestim_sow$A.q111_fGenderdum)
+
+pred$Weedmanaged=mean(LDSestim_sow$Weedmanaged)
+
+pred$temp=mean(LDSestim_sow$temp)
+
+pred$precip=mean(LDSestim_sow$precip)
+
+pred$wc2.1_30s_elev=mean(LDSestim_sow$wc2.1_30s_elev)  
+
+pred$M.q708_marketDistance=mean(LDSestim_sow$M.q708_marketDistance)
+
+pred$nitrogen_0.5cm=mean(LDSestim_sow$nitrogen_0.5cm)
+pred$sand_0.5cm=mean(LDSestim_sow$sand_0.5cm)
+pred$soc_5.15cm=mean(LDSestim_sow$soc_5.15cm)
+pred$feb_mean_temp=mean(LDSestim_sow$march_mean_temp)
+pred$march_mean_temp=mean(LDSestim_sow$march_mean_temp)
+pred$april_mean_temp=mean(LDSestim_sow$april_mean_temp)
 
 pred2 <- expand.grid(O.largestPlotGPS.Longitude = seq(82, 89, length = 100),O.largestPlotGPS.Latitude = seq(24,28, length = 100))
 
 pred2$Sowing_Date_Early=0
 
-pred2$march_mean_temp=mean(LDS$march_mean_temp)
-pred2$april_mean_temp=mean(LDS$april_mean_temp)
+pred2$I.q5505_weedSeverity_num=mean(LDSestim_sow$I.q5505_weedSeverity_num)
+
+pred2$I.q5509_diseaseSeverity_num=mean(LDSestim_sow$I.q5509_diseaseSeverity_num)
+
+pred2$I.q5506_insectSeverity_num=mean(LDSestim_sow$I.q5506_insectSeverity_num)
+
+pred2$Nperha=mean(LDSestim_sow$Nperha)
+pred2$P2O5perha=mean(LDSestim_sow$P2O5perha)
+pred2$variety_type_NMWV=mean(LDSestim_sow$variety_type_NMWV)
+pred2$G.q5305_irrigTimes=mean(LDSestim_sow$G.q5305_irrigTimes)
+pred2$A.q111_fGenderdum=mean(LDSestim_sow$A.q111_fGenderdum)
+pred2$Weedmanaged=mean(LDSestim_sow$Weedmanaged)
+pred2$temp=mean(LDSestim_sow$temp)
+pred2$precip=mean(LDSestim_sow$precip)
+pred2$wc2.1_30s_elev=mean(LDSestim_sow$wc2.1_30s_elev)  
+
+pred2$M.q708_marketDistance=mean(LDSestim_sow$M.q708_marketDistance)
+
+pred2$nitrogen_0.5cm=mean(LDSestim_sow$nitrogen_0.5cm)
+pred2$sand_0.5cm=mean(LDSestim_sow$sand_0.5cm)
+pred2$soc_5.15cm=mean(LDSestim_sow$soc_5.15cm)
+pred2$feb_mean_temp=mean(LDSestim_sow$march_mean_temp)
+pred2$march_mean_temp=mean(LDSestim_sow$march_mean_temp)
+pred2$april_mean_temp=mean(LDSestim_sow$april_mean_temp)
 
 tau_hat <- predict(b,newdata=pred)
 tau_hat2 <- predict(b,newdata=pred2)
@@ -307,13 +392,43 @@ pred_tau_hat$sowing_yield_gain=pred_tau_hat$mu_1-pred_tau_hat$mu_2
 # library(terra)
 # 
 pred_tau_hat$Sowing_Date_Early=NULL
+pred_tau_hat$feb_mean_temp=NULL
 pred_tau_hat$march_mean_temp=NULL
 pred_tau_hat$april_mean_temp=NULL
+
+
+
+pred_tau_hat$I.q5505_weedSeverity_num=NULL
+
+pred_tau_hat$I.q5509_diseaseSeverity_num=NULL
+
+pred_tau_hat$I.q5506_insectSeverity_num=NULL
+
+pred_tau_hat$Nperha=NULL
+pred_tau_hat$P2O5perha=NULL
+pred_tau_hat$variety_type_NMWV=NULL
+pred_tau_hat$G.q5305_irrigTimes=NULL
+pred_tau_hat$A.q111_fGenderdum=NULL
+pred_tau_hat$Weedmanaged=NULL
+pred_tau_hat$temp=NULL
+pred_tau_hat$precip=NULL
+pred_tau_hat$wc2.1_30s_elev=NULL
+
+pred_tau_hat$M.q708_marketDistance=NULL
+
+pred_tau_hat$nitrogen_0.5cm=NULL
+pred_tau_hat$sand_0.5cm=NULL
+pred_tau_hat$soc_5.15cm=NULL
+pred_tau_hat$feb_mean_temp=NULL
+pred_tau_hat$march_mean_temp=NULL
+pred_tau_hat$april_mean_temp=NULL
+
 pred_tau_hat$mu_1=NULL
 pred_tau_hat$sigma_1=NULL
 pred_tau_hat$mu_2=NULL
 pred_tau_hat$sigma_2=NULL
-pred_tau_hat$sowing_yield_gain=pred_tau_hat$sowing_yield_gain/1000
+
+
  myras <- rast(pred_tau_hat, type="xyz")
 plot(myras)
  library(raster)
@@ -324,7 +439,8 @@ India_aoi_sf_dis_sp=as_Spatial(India_aoi_sf_dis)
 myras2=mask(myras2,India_aoi_sf_dis_sp)
 plot(myras2)
 
-
+#library(mapview)
+#mapview(myras2,layer.name="Yield gain (t/ha) to early sowing")
 ```
 
 # Interpolation for point-geocoded data
@@ -354,61 +470,92 @@ points(LDS_v)
 v_india_aoi <- crop(v,India_aoi)
 plot(v_india_aoi, "yield_kgperha")
 
-# r <- rast(India_aoi, res=10000)
-# vr <- terra::rasterize(v_india_aoi, r, "yield_kgperha")
-# plot(vr)
+e <- extent(c(min(LDS$O.largestPlotGPS.Longitude)-2,max(LDS$O.largestPlotGPS.Longitude)+2,min(LDS$O.largestPlotGPS.Latitude)-2,max(LDS$O.largestPlotGPS.Latitude)+2))
+
+library(raster)
+aoi_terra <- rast(ext=e, res=1/6)
+
+vr <- terra::rasterize(v_india_aoi, aoi_terra, "yield_kgperha")
+plot(vr)
 
 
-
+# Compare with straight rasterizing
+straight_rasterize <- terra::rasterize(vect(LDS_sp), aoi_terra, "yield_kgperha")
+plot(straight_rasterize)
 ```
 
 ### Nearest-neigbor
 
 ```{r}
-# library(gstat)
-# r <- rast(India_aoi, res=10000)
-# gs <- gstat(formula=yield_kgperha~1, data=LDS_sp, nmax=5, set=list(idp = 0))
-# nn <- interpolate(r, gs, debug.level=0)
-# nnmsk <- mask(nn, vr)
-# plot(nnmsk, 1)
+library(gstat)
+library(raster)
 
+e <- extent(c(min(LDS$O.largestPlotGPS.Longitude)-2,max(LDS$O.largestPlotGPS.Longitude)+2,min(LDS$O.largestPlotGPS.Latitude)-2,max(LDS$O.largestPlotGPS.Latitude)+2))
+
+aoi <- raster(ext=e, res=1/6)
+
+gs <- gstat(formula=yield_kgperha~1, data=LDS_sp, nmax=5, set=list(idp = 0))
+
+nn <- interpolate(aoi, gs, debug.level=0)
+nnmsk <- mask(nn, India_aoi_sf)
+plot(nnmsk)
+
+library(mapview)
+mapview(nnmsk, layer.name="Nearest neigbor interpolated yield")
 
 ```
 
 ### Inverse distance weighted
 
+For inverse distance, we remove specifications on neigbors and inverse distance being zero in the nearest neighbor code \[nmax=5, set=list(idp = 0)\].
+
 ```{r}
 
-# library(gstat)
-# gs <- gstat(formula=yield_kgperha~1, locations=~x+y, data=d)
-# idw <- interpolate(r, gs, debug.level=0)
-# idwr <- mask(idw, vr)
-# plot(idwr, 1)
-# 
-# 
+library(gstat)
+gs <- gstat(formula=yield_kgperha~1, data=LDS_sp)
+idw <- interpolate(aoi, gs, debug.level=0)
+idwr <- mask(idw, India_aoi_sf)
+plot(idwr)
 
+library(mapview)
+mapview(idwr, layer.name="IDW yield")
 
 ```
 
-## Model based kriging
+## Model-based kriging
+
+This is the well known frequentist geostatistical approach using variogram. Note that this is computationally heavy! I usually use the Bayesian geostatistical models.
+
+For either approach, we assume that covariance between random variables in two locations depends on interlocation distance. This can be modeled using different functions. That is, one may assume that the covariance is an exponential function \^$(C(d_{ii})=\sigma^2 e^{-\phi d_{ii}})$ of interlocation distance with some variogram parameters. Few terms are important to understand. "Sill" is the total variance consisting of the nugget effect $\tau^2$ and partial sill $\sigma^2$. $\phi$ is the decay parameter with $1/\phi$ being the range, i.e., the distance before reach 95% of the sill.
 
 ```{r}
+library(gstat)
+v <- variogram(L.tonPerHectare ~ 1, data = LDS_sp)
+plot(v)
 
+# Guess parameters of nugget (x=0, y=?), partial sill (x100-x95), range(dist at partial sill)
 
+# vinitial <- vgm(psill = 0.2, model = "Exp",
+#                 range = 100, nugget = 0.8)
+# 
+# plot(v, vinitial, cutoff = 1000, cex = 1.5)
+# 
+# fv <- fit.variogram(object = v,
+#                     model = vgm(psill = 0.5, model = "Sph",
+#                                 range = 100, nugget = 0.4))
+# fv
+# plot(v, fv, cex = 1.5)
 
-
-
-
-```
-
-## Causal ML using gridded variables
-
-```{r}
-
-
-
-
-
+# library(ggplot2)
+# library(viridis)
+# 
+# k <- gstat(formula = L.tonPerHectare ~ 1, data = LDS_sp, model = fv)
+# 
+# kpred <- predict(k, aoi )
+# 
+# ggplot() + geom_sf(data = kpred, aes(color = var1.pred)) 
+# 
+# ggplot() + geom_sf(data = kpred, aes(color = var1.var))
 
 ```
 
@@ -457,6 +604,8 @@ pp <- crop(pp, India_aoi_sf)
 plot(pp)
 #points(LDS$O.largestPlotGPS.Longitude, LDS$O.largestPlotGPS.Latitude, col="blue")
 
+library(mapview)
+mapview(pp, layer.name="Random forest yield prediction")
 
 
 ```
@@ -687,6 +836,7 @@ pred.mu=raster(pred.mu)
 pred.mu=mask(pred.mu,India_aoi_sf_dis_sp)
 pred.mu_plot=levelplot(pred.mu,par.settings=RdBuTheme(),contour=TRUE)
 pred.mu_plot
+#mapview(pred.mu_plot,layer.name="Mean posterior yield")
 
 # Standard deviation
 library(rasterVis)
@@ -695,6 +845,7 @@ pred.sd=raster(pred.sd)
 pred.sd=mask(pred.sd,India_aoi_sf_dis_sp)
 pred.sd_plot=levelplot(pred.sd,par.settings=RdBuTheme(),contour=TRUE)
 pred.sd_plot
+#mapview(pred.sd_plot, layer.name="posterior SD")
 
 # Probability of 3 tons
 pred.prob_3tons=pred.grid["pred.prob_3tons"]
@@ -702,6 +853,8 @@ pred.prob_3tons=raster(pred.prob_3tons)
 pred.prob_3tons=mask(pred.prob_3tons,India_aoi_sf_dis_sp)
 pred.prob_3tons_plot=levelplot(pred.prob_3tons,par.settings=RdBuTheme(),contour=TRUE)
 pred.prob_3tons_plot
+library(mapview)
+#mapview(pred.prob_3tons_plot, layer.name="Probability of >3 tons")
 
 # Probability of 5 tons
 pred.prob_5tons=pred.grid["pred.prob_5tons"]
@@ -710,6 +863,8 @@ pred.prob_5tons=mask(pred.prob_5tons,India_aoi_sf_dis_sp)
 pred.prob_5tons_plot=levelplot(pred.prob_5tons,par.settings=RdBuTheme(),contour=TRUE)
 pred.prob_5tons_plot
 
+library(mapview)
+#mapview(pred.prob_5tons_plot,layer.name="Probability of >5 tons")
 ```
 
 ### Spatial Bayesian Geoadditive Model
@@ -748,7 +903,8 @@ India_aoi_sf_dis_sp=as_Spatial(India_aoi_sf_dis)
 myras2=mask(myras2,India_aoi_sf_dis_sp)
 plot(myras2)
 
-
+library(mapview)
+mapview(myras2, layer.name="Geoadditive Yield" )
 ```
 
 ### BAMLSS gridded treatment effects: post-processing
@@ -803,7 +959,6 @@ There two important cases in which one may have areal data to use in climate ada
 
 One can get the centroid of each polygon, e.g., then fit a geostatistical model as in the spatial Bayesian Geostatistical Gaussian Process Model or geoadditive model as above.
 
-
 ### Markov Random Field (MRF) Geoadditive Structured and Unstructured Spatial Model
 
 In the case where there are data at individual farm level albeit not have geocoordinates,one can use structured geoadditive model to ascertain the patterns of the explained and unexplained spatial effect.
@@ -837,11 +992,21 @@ India_aoi_sp_bnd <- BayesX::shp2bnd(shpname=shpname, regionnames = "NAME_2", che
 ## Other Areal-Point Downscaling Methods
 
 # Conclusion
+The notebook has shown the possibilities of estimating heterogeneous treatment effects while ensure causality, and nonlinearity. 
 
 # References
 
+## Journal papers
 Athey, S., and Wager, S. 2021. "Policy learning with observational data." *Econometrica* 89(1): 133-161. Doi: <https://doi.org/10.3982/ECTA15732>.
 
 Wager, S., and Athey, S. 2018. "Estimation and Inference of Heterogeneous Treatment Effects using Random Forests". *Journal of the American Statistical Association* 113(523): 1228-1242. Doi: <https://doi.org/10.1080/01621459.2017.1319839>.
 
 Zhou, Z., Athey, S., Wager, S. 2022. "Offline multi-action policy learning: Generalization and optimization." *Operations Research* 71 (1): 148-183. Doi: <https://doi.org/10.1287/opre.2022.2271>.
+
+## Books
+Banerjee, S., Carlin, B.P., Gelfand, A.E. 2015. "Hierarchical modeling and analysis for spatial data". 2nd Edition. Chapman & Hall/CRC Monographs on Statistics and Applied Probability. 
+
+Congdon, P.D. Bayesian Hierarchical Models With Applications Using R, Second Edition.
+
+Moraga, P.2023.Spatial Statistics for Data Science: Theory and Practice with R. Url: https://www.paulamoraga.com/book-spatial/index.html
+
