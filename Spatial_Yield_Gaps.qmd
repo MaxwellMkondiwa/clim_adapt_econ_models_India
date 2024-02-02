@@ -71,6 +71,7 @@ plot(model, select=2)
 ```
 
 ## Geoadditive kriging
+
 ```{r}
 
 pred <- expand.grid(O.largestPlotGPS.Longitude = seq(82, 89, length = 100),O.largestPlotGPS.Latitude = seq(24,28, length = 100))
@@ -207,4 +208,3 @@ effdt_jondrow=as.data.frame(effdt_jondrow)
 #mu_c<-(y-mu)/sigma_v^2*sigma_c^2#object$family$s*mgcv::residuals.gam(object)/sigma_v^2*sigma_c^2
     
 ```
-
