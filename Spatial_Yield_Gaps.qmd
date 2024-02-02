@@ -34,13 +34,13 @@ library(dsfa)
 library(mgcv)
 
 #Write formulae for parameters
-mu_formula<-L.tonPerHectare~Nperha+wc2.1_30s_elev+s(O.largestPlotGPS.Longitude, 
+mu_formula<-log(L.tonPerHectare)~Nperha+wc2.1_30s_elev+s(O.largestPlotGPS.Longitude, 
     O.largestPlotGPS.Latitude, by = Weedmanaged) 
 
 sigma_v_formula<-~1+temp+precip
 
 #+s(G.q5305_irrigTimes, bs="ps")+
-sigma_u_formula<-~-1+
+sigma_u_formula<-~1+
 s(O.largestPlotGPS.Longitude, 
     O.largestPlotGPS.Latitude, by = Sowing_Date_Early) +s(O.largestPlotGPS.Longitude, 
     O.largestPlotGPS.Latitude, by = Weedmanaged) 
@@ -73,7 +73,184 @@ plot(model, select=2)
 ## Geoadditive kriging
 
 ```{r}
+# fitted values
+tau_hat=model$fitted.values
+tau_hat=as.data.frame(tau_hat)
+names(tau_hat)[1:3]=c("mu","sigma_v","sigma_u")
 
+#Fitted models
+# tau_hat$sigma_c<-sqrt((tau_hat$sigma_u^2*tau_hat$sigma_v^2)/(tau_hat$sigma_v^2+tau_hat$sigma_u^2))#(1/sigma_u^2+1/sigma_v^2)^(-1)
+#  
+# tau_hat$mu_c<- -(model$model$L.tonPerHectare-tau_hat$mu)/tau_hat$sigma_v^2*tau_hat$sigma_c^2#object$family$s*mgcv::residuals.gam(object)/sigma_v^2*sigma_c^2
+# 
+# tau_hat$u<-exp(1/2*tau_hat$sigma_c^2-tau_hat$mu_c)*stats::pnorm(tau_hat$mu_c/tau_hat$sigma_c-tau_hat$sigma_c)/stats::pnorm(tau_hat$mu_c/tau_hat$sigma_c)
+
+
+tau_hat$sigma_c<-sqrt((tau_hat$sigma_u^2*tau_hat$sigma_v^2)/(tau_hat$sigma_v^2+tau_hat$sigma_u^2))#(1/sigma_u^2+1/sigma_v^2)^(-1)
+
+
+
+tau_hat$mu_c<--(model$model$`log(L.tonPerHectare)`-tau_hat$mu)/tau_hat$sigma_v^2*tau_hat$sigma_c^2#object$family$s*mgcv::residuals.gam(object)/sigma_v^2*sigma_c^2
+
+
+
+tau_hat$u<-exp(1/2*tau_hat$sigma_c^2-tau_hat$mu_c)*stats::pnorm(tau_hat$mu_c/tau_hat$sigma_c-tau_hat$sigma_c)/stats::pnorm(tau_hat$mu_c/tau_hat$sigma_c)
+
+tau_hat$u_jondrow<-tau_hat$mu_c+tau_hat$sigma_c*stats::dnorm(tau_hat$mu_c/tau_hat$sigma_c)/stats::pnorm(tau_hat$mu_c/tau_hat$sigma_c)
+
+# CI_lower<-mu_c+stats::qnorm(lower)*sigma_c
+# CI_upper<-mu_c+stats::qnorm(upper)*sigma_c
+# CI_lower<-exp(-CI_upper)
+# CI_upper<-exp(-CI_lower)
+    
+
+effdt_battese=efficiency(model,type="battese")
+lon=model$model$O.largestPlotGPS.Longitude
+lon=as.data.frame(lon)
+lat=model$model$O.largestPlotGPS.Latitude
+lat=as.data.frame(lat)
+effdt_battese=cbind(lon,lat,effdt_battese)
+
+library(bamlss)
+set.seed(111)
+f <- u ~  s(lon,lat)
+
+## estimate model.
+b <- bamlss(f, data =effdt_battese )
+
+pred <- expand.grid(lon = seq(82, 89, length = 100),lat = seq(24,28, length = 100))
+                    
+effdt_battese_hat <- predict(b,newdata=pred)
+
+effdt_battese_hat=as.data.frame(effdt_battese_hat)
+
+pred_effdt_battese_hat=cbind(pred,effdt_battese_hat)
+
+pred_effdt_battese_hat$sigma=NULL
+
+library(terra)
+
+myras <- rast(pred_effdt_battese_hat, type="xyz")
+plot(myras)
+
+library(raster)
+myras2=raster(myras)
+library(geodata)
+
+India=gadm(country="IND", level=2, path="shp")
+plot(India)
+India_aoi=subset(India,India$NAME_1=="Bihar"|India$NAME_2%in%c("Ballia","Chandauli","Deoria","Ghazipur","Kushinagar","Maharajganj","Mau","Siddharth Nagar","Gorakhpur"))
+
+plot(India_aoi)
+
+plot(India_aoi, add=TRUE)
+
+library(sf)
+India_aoi_sf=st_as_sf(India_aoi)
+library(mapview)
+
+mapview(India_aoi_sf)
+
+library(sf)
+India_aoi_sf_dis=st_union(India_aoi_sf)
+
+
+library(sf)
+India_aoi_sf_dis_sp=as_Spatial(India_aoi_sf_dis)
+myras2=mask(myras2,India_aoi_sf_dis_sp)
+plot(myras2, main="Gridded efficiency scores")
+
+
+
+
+
+
+
+
+
+# Efficiency kriging
+# pred_eff <- expand.grid(O.largestPlotGPS.Longitude = seq(82, 89, length = 100),O.largestPlotGPS.Latitude = seq(24,28, length = 100))
+# 
+# pred_eff$Sowing_Date_Early=1
+# pred_eff$Nperha=mean(model$model$Nperha)
+# pred_eff$wc2.1_30s_elev=mean(model$model$wc2.1_30s_elev)
+# pred_eff$Weedmanaged=1
+# pred_eff$temp=mean(model$model$temp)
+# pred_eff$precip=mean(model$model$precip)
+# 
+# tau_hat_eff <- predict(model,newdata=pred_eff)
+# 
+# tau_hat_eff=as.data.frame(tau_hat_eff)
+# 
+# names(tau_hat_eff)[1:3]=c("mu","sigma_v","sigma_u")
+# 
+# 
+# tau_hat_eff$sigma_c<-sqrt((tau_hat_eff$sigma_u^2*tau_hat_eff$sigma_v^2)/(tau_hat_eff$sigma_v^2+tau_hat_eff$sigma_u^2))#(1/sigma_u^2+1/sigma_v^2)^(-1)
+# 
+# 
+# 
+# tau_hat_eff$mu_c<--(model$model$`log(L.tonPerHectare)`-tau_hat_eff$mu)/tau_hat_eff$sigma_v^2*tau_hat_eff$sigma_c^2#object$family$s*mgcv::residuals.gam(object)/sigma_v^2*sigma_c^2
+# 
+# 
+# 
+# tau_hat_eff$u<-exp(1/2*tau_hat_eff$sigma_c^2-tau_hat_eff$mu_c)*stats::pnorm(tau_hat_eff$mu_c/tau_hat_eff$sigma_c-tau_hat_eff$sigma_c)/stats::pnorm(tau_hat_eff$mu_c/tau_hat_eff$sigma_c)
+# 
+# 
+# pred_tau_hat=cbind(pred_eff,tau_hat_eff)
+# pred_tau_hat=as.data.frame(pred_tau_hat)
+# 
+# pred_tau_hat$sowing_yield_gain=pred_tau_hat$mu_1-tau_hat2$mu_2
+# 
+# pred_tau_hat=subset(pred_tau_hat,select=c("O.largestPlotGPS.Longitude","O.largestPlotGPS.Latitude","sigma_u_1"))
+# 
+# library(terra)
+# myras <- rast(pred_tau_hat, type="xyz")
+# plot(myras)
+# 
+# 
+# # Masking
+# library(raster)
+#  myras2=raster(myras)
+#  
+#  
+#  
+# library(geodata)
+# 
+# India=gadm(country="IND", level=2, path="shp")
+# plot(India)
+# India_aoi=subset(India,India$NAME_1=="Bihar"|India$NAME_2%in%c("Ballia","Chandauli","Deoria","Ghazipur","Kushinagar","Maharajganj","Mau","Siddharth Nagar","Gorakhpur"))
+# 
+# plot(India_aoi)
+# 
+# plot(India_aoi, add=TRUE)
+# 
+# library(sf)
+# India_aoi_sf=st_as_sf(India_aoi)
+# library(mapview)
+# 
+# mapview(India_aoi_sf)
+# 
+# library(sf)
+# India_aoi_sf_dis=st_union(India_aoi_sf)
+# 
+# 
+# library(sf)
+# India_aoi_sf_dis_sp=as_Spatial(India_aoi_sf_dis)
+# myras2=mask(myras2,India_aoi_sf_dis_sp)
+# plot(myras2)
+
+
+
+
+
+
+
+
+
+
+
+
+# Sowing date krigging
 pred <- expand.grid(O.largestPlotGPS.Longitude = seq(82, 89, length = 100),O.largestPlotGPS.Latitude = seq(24,28, length = 100))
 
 pred$Sowing_Date_Early=1
@@ -156,55 +333,5 @@ myras2=mask(myras2,India_aoi_sf_dis_sp)
 plot(myras2)
 
 
-# Gridded efficiency
-pred <- expand.grid(O.largestPlotGPS.Longitude = seq(82, 89, length = 100),O.largestPlotGPS.Latitude = seq(24,28, length = 100))
-
-pred$Sowing_Date_Early=1
-pred$Nperha=mean(model$model$Nperha)
-pred$wc2.1_30s_elev=mean(model$model$wc2.1_30s_elev)
-pred$Weedmanaged=1
-pred$temp=mean(model$model$temp)
-pred$precip=mean(model$model$precip)
-
-tau_hat_grid <- predict(model,newdata=pred)
-
-fit = predict(model,type="terms")
-
-tau_hat_grid=as.data.frame(tau_hat_grid)
-
-
-names(tau_hat_grid)[1:3]=c("mu","sigma_v","sigma_u")
-
-# fitted values
-tau_hat=model$fitted.values
-tau_hat=as.data.frame(tau_hat)
-names(tau_hat)[1:3]=c("mu","sigma_v","sigma_u")
-
-#Fitted models
-tau_hat$sigma_c<-sqrt((tau_hat$sigma_u^2*tau_hat$sigma_v^2)/(tau_hat$sigma_v^2+tau_hat$sigma_u^2))#(1/sigma_u^2+1/sigma_v^2)^(-1)
  
-tau_hat$mu_c<-(model$model$L.tonPerHectare-tau_hat$mu)/tau_hat$sigma_v^2*tau_hat$sigma_c^2#object$family$s*mgcv::residuals.gam(object)/sigma_v^2*sigma_c^2
-
-tau_hat$u<-exp(1/2*tau_hat$sigma_c^2-tau_hat$mu_c)*stats::pnorm(tau_hat$mu_c/tau_hat$sigma_c-tau_hat$sigma_c)/stats::pnorm(tau_hat$mu_c/tau_hat$sigma_c)
-
-tau_hat$u_jondrow<-tau_hat$mu_c+tau_hat$sigma_c*stats::dnorm(tau_hat$mu_c/tau_hat$sigma_c)/stats::pnorm(tau_hat$mu_c/tau_hat$sigma_c)
-
-CI_lower<-mu_c+stats::qnorm(lower)*sigma_c
-CI_upper<-mu_c+stats::qnorm(upper)*sigma_c
-CI_lower<-exp(-CI_upper)
-CI_upper<-exp(-CI_lower)
-    
-
-effdt=efficiency(model,type="battese")
-effdt=as.data.frame(effdt)
-
-effdt_jondrow=efficiency(model,type="jondrow")
-effdt_jondrow=as.data.frame(effdt_jondrow)
-
-# For the grids
-
-#sigma_c<-sqrt((sigma_u^2*sigma_v^2)/(sigma_v^2+sigma_u^2))#(1/sigma_u^2+1/sigma_v^2)^(-1)
- 
-#mu_c<-(y-mu)/sigma_v^2*sigma_c^2#object$family$s*mgcv::residuals.gam(object)/sigma_v^2*sigma_c^2
-    
 ```
